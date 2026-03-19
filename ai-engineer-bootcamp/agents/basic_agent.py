@@ -16,6 +16,15 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ── Colores ANSI ──────────────────────────────────────────────
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_YELLOW = "\033[33m"       # Action
+_MAGENTA = "\033[35m"      # Observation
+_GREEN = "\033[32m"        # Respuesta
+_RED = "\033[31m"          # Error
+_RESET = "\033[0m"
+
 SYSTEM_PROMPT = """\
 Eres un agente DocOps que responde preguntas sobre documentos internos de la empresa.
 
@@ -48,7 +57,7 @@ class BasicAgent:
     def __init__(
         self,
         tools: dict | None = None,
-        model: str = "gpt-oss-120b",
+        model: str = "openai/gpt-oss-120b",
         max_steps: int = 5,
     ):
         self.tools = tools or TOOLS_REGISTRY
@@ -60,10 +69,16 @@ class BasicAgent:
             timeout=30.0,
         )
 
-    def run(self, query: str) -> dict:
+    def run(self, query: str, verbose: bool = True) -> dict:
         steps: list[dict] = []
         trajectory = f"Question: {query}\n"
         system = SYSTEM_PROMPT.format(max_steps=self.max_steps)
+
+        if verbose:
+            print(f"\n{_BOLD}{'─' * 60}{_RESET}")
+            print(f"{_BOLD}  AGENTE BÁSICO (Act-Only){_RESET}")
+            print(f"{_DIM}  Query: {query}{_RESET}")
+            print(f"{_BOLD}{'─' * 60}{_RESET}")
 
         for step_num in range(1, self.max_steps + 1):
             try:
@@ -79,6 +94,8 @@ class BasicAgent:
                 raw = response.choices[0].message.content.strip()
             except Exception as e:
                 logger.error("Step %d - LLM error: %s", step_num, e)
+                if verbose:
+                    print(f"  {_RED}Error: {e}{_RESET}")
                 steps.append(
                     {
                         "step": step_num,
@@ -96,6 +113,10 @@ class BasicAgent:
 
             # Finish
             if tool_call.tool == "Finish":
+                if verbose:
+                    print(f"  {_YELLOW}Action {step_num}:{_RESET} {action_line[:70]}")
+                    print(f"\n  {_GREEN}{_BOLD}Respuesta:{_RESET} {_GREEN}{tool_call.argument}{_RESET}")
+                    print(f"  {_DIM}Total pasos: {step_num}{_RESET}\n")
                 steps.append(
                     {
                         "step": step_num,
@@ -105,7 +126,7 @@ class BasicAgent:
                     }
                 )
                 trajectory += f"Action {step_num}: {action_line}\n"
-                logger.info("Step %d - Finished: %s", step_num, tool_call.argument[:100])
+                logger.info("Step %d - Finished: %s", step_num, tool_call.argument)
                 return {
                     "answer": tool_call.argument,
                     "steps": steps,
@@ -115,6 +136,11 @@ class BasicAgent:
             # Execute tool
             result = execute_tool(tool_call)
             observation = result.output
+
+            if verbose:
+                print(f"  {_YELLOW}Action {step_num}:{_RESET} {action_line[:70]}")
+                print(f"  {_MAGENTA}Observation {step_num}:{_RESET} {_MAGENTA}{observation[:120]}{_RESET}")
+                print()
 
             steps.append(
                 {
@@ -130,24 +156,30 @@ class BasicAgent:
             )
             logger.info("Step %d - Observation: %s", step_num, observation[:100])
 
+        if verbose:
+            print(f"  {_RED}Max pasos alcanzados sin respuesta final.{_RESET}\n")
+
         return {"answer": None, "steps": steps, "total_steps": len(steps)}
 
     @staticmethod
     def _extract_action(raw: str, step_num: int) -> str:
         """Extrae la línea de acción de la respuesta del LLM."""
+        # Strip markdown bold markers
+        cleaned = re.sub(r"\*{1,2}", "", raw).strip()
+
         # Try exact step number
-        match = re.search(rf"Action\s*{step_num}\s*:\s*(.+)", raw)
+        match = re.search(rf"Action\s*{step_num}\s*:\s*(.+)", cleaned)
         if match:
             return match.group(1).strip()
 
         # Try any Action pattern
-        match = re.search(r"Action\s*\d*\s*:\s*(.+)", raw)
+        match = re.search(r"Action\s*\d*\s*:\s*(.+)", cleaned)
         if match:
             return match.group(1).strip()
 
         # Fallback: line that looks like a tool call
-        for line in raw.split("\n"):
+        for line in cleaned.split("\n"):
             if re.search(r"\w+\s*[\[\(]", line):
                 return line.strip()
 
-        return raw.strip()
+        return cleaned

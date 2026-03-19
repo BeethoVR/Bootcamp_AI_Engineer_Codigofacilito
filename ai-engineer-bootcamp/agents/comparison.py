@@ -24,9 +24,10 @@ logging.basicConfig(level=logging.WARNING)
 BOLD = "\033[1m"
 DIM = "\033[2m"
 CYAN = "\033[36m"
-GREEN = "\033[32m"
-YELLOW = "\033[33m"
-MAGENTA = "\033[35m"
+BLUE = "\033[34m"       # Thought / Razonamiento
+GREEN = "\033[32m"      # Respuesta
+YELLOW = "\033[33m"     # Action
+MAGENTA = "\033[35m"    # Observation
 RED = "\033[31m"
 RESET = "\033[0m"
 
@@ -45,7 +46,7 @@ def run_pipeline(query: str) -> dict:
 
     try:
         response = _pipeline_client.chat.completions.create(
-            model="gpt-oss-120b",
+            model="openai/gpt-oss-120b",
             messages=[
                 {
                     "role": "system",
@@ -184,57 +185,52 @@ def _print_header(question: str, category: str):
 
 def _print_pipeline(result: dict, elapsed: float):
     answer = result["answer"]
-    print(f"\n{GREEN}┌─ PIPELINE ────────────────────────────────────────────────────┐{RESET}")
-    for line in _wrap(answer, 60):
-        print(f"{GREEN}│{RESET} {line}")
-    print(f"{GREEN}│{RESET} {DIM}Pasos: {result['steps']} | Tiempo: {elapsed:.1f}s{RESET}")
-    print(f"{GREEN}└──────────────────────────────────────────────────────────────┘{RESET}")
+    print(f"\n{CYAN}┌─ PIPELINE ────────────────────────────────────────────────────┐{RESET}")
+    print(f"{CYAN}│{RESET} {GREEN}{BOLD}Respuesta:{RESET}")
+    for line in _wrap(answer, 58):
+        print(f"{CYAN}│{RESET}   {GREEN}{line}{RESET}")
+    print(f"{CYAN}│{RESET} {DIM}Pasos: {result['steps']} | Tiempo: {elapsed:.1f}s{RESET}")
+    print(f"{CYAN}└──────────────────────────────────────────────────────────────┘{RESET}")
 
 
 def _print_basic(result: dict, elapsed: float):
-    print(f"\n{YELLOW}┌─ AGENTE BÁSICO (Act-Only) ────────────────────────────────────┐{RESET}")
+    print(f"\n{CYAN}┌─ AGENTE BÁSICO (Act-Only) ────────────────────────────────────┐{RESET}")
     for s in result["steps"]:
-        action = s["action"][:58]
-        print(f"{YELLOW}│{RESET} {DIM}Action {s['step']}:{RESET} {action}")
+        action = s["action"][:65]
+        print(f"{CYAN}│{RESET} {YELLOW}Action {s['step']}:{RESET} {YELLOW}{action}{RESET}")
         if s.get("observation") and s["action"] != s.get("observation", ""):
-            obs = s["observation"][:55]
-            print(f"{YELLOW}│{RESET}   {DIM}Obs {s['step']}: {obs}{RESET}")
+            obs = s["observation"][:62]
+            print(f"{CYAN}│{RESET} {MAGENTA}Obs {s['step']}:{RESET} {MAGENTA}{obs}{RESET}")
     answer = result.get("answer") or "(sin respuesta)"
-    print(f"{YELLOW}│{RESET}")
-    print(f"{YELLOW}│{RESET} {BOLD}Respuesta:{RESET} ", end="")
-    for i, line in enumerate(_wrap(answer, 50)):
-        if i == 0:
-            print(line)
-        else:
-            print(f"{YELLOW}│{RESET}            {line}")
+    print(f"{CYAN}│{RESET}")
+    print(f"{CYAN}│{RESET} {GREEN}{BOLD}Respuesta:{RESET}")
+    for line in _wrap(answer, 56):
+        print(f"{CYAN}│{RESET}   {GREEN}{line}{RESET}")
     print(
-        f"{YELLOW}│{RESET} {DIM}Pasos: {result['total_steps']} | Tiempo: {elapsed:.1f}s{RESET}"
+        f"{CYAN}│{RESET} {DIM}Pasos: {result['total_steps']} | Tiempo: {elapsed:.1f}s{RESET}"
     )
-    print(f"{YELLOW}└──────────────────────────────────────────────────────────────┘{RESET}")
+    print(f"{CYAN}└──────────────────────────────────────────────────────────────┘{RESET}")
 
 
 def _print_react(result: dict, elapsed: float):
-    print(f"\n{MAGENTA}┌─ AGENTE REACT ────────────────────────────────────────────────┐{RESET}")
+    print(f"\n{CYAN}┌─ AGENTE REACT ─────────────────────────────────────────────────┐{RESET}")
     for s in result["steps"]:
-        thought = s.get("thought", "")[:55]
-        action = s["action"][:58]
-        print(f"{MAGENTA}│{RESET} {DIM}Thought {s['step']}:{RESET} {thought}")
-        print(f"{MAGENTA}│{RESET} {DIM}Action  {s['step']}:{RESET} {action}")
+        thought = s.get("thought", "")[:62]
+        action = s["action"][:65]
+        print(f"{CYAN}│{RESET} {BLUE}Thought {s['step']}:{RESET} {BLUE}{thought}{RESET}")
+        print(f"{CYAN}│{RESET} {YELLOW}Action  {s['step']}:{RESET} {YELLOW}{action}{RESET}")
         if s.get("observation") and s["action"] != s.get("observation", ""):
-            obs = s["observation"][:55]
-            print(f"{MAGENTA}│{RESET}   {DIM}Obs {s['step']}: {obs}{RESET}")
+            obs = s["observation"][:62]
+            print(f"{CYAN}│{RESET} {MAGENTA}Obs     {s['step']}:{RESET} {MAGENTA}{obs}{RESET}")
     answer = result.get("answer") or "(sin respuesta)"
-    print(f"{MAGENTA}│{RESET}")
-    print(f"{MAGENTA}│{RESET} {BOLD}Respuesta:{RESET} ", end="")
-    for i, line in enumerate(_wrap(answer, 50)):
-        if i == 0:
-            print(line)
-        else:
-            print(f"{MAGENTA}│{RESET}            {line}")
+    print(f"{CYAN}│{RESET}")
+    print(f"{CYAN}│{RESET} {GREEN}{BOLD}Respuesta:{RESET}")
+    for line in _wrap(answer, 56):
+        print(f"{CYAN}│{RESET}   {GREEN}{line}{RESET}")
     print(
-        f"{MAGENTA}│{RESET} {DIM}Pasos: {result['total_steps']} | Tiempo: {elapsed:.1f}s{RESET}"
+        f"{CYAN}│{RESET} {DIM}Pasos: {result['total_steps']} | Tiempo: {elapsed:.1f}s{RESET}"
     )
-    print(f"{MAGENTA}└──────────────────────────────────────────────────────────────┘{RESET}")
+    print(f"{CYAN}└──────────────────────────────────────────────────────────────┘{RESET}")
 
 
 def _wrap(text: str, width: int) -> list[str]:
@@ -354,16 +350,23 @@ def _print_analysis():
    adaptación. Si el retrieval falla, la respuesta falla.
    No hay forma de reformular o buscar alternativas.
 
-{YELLOW}2. AGENTE BÁSICO (Act-Only):{RESET} Puede usar herramientas
+{YELLOW}2. AGENTE BÁSICO ({YELLOW}Action{RESET} only):{RESET} Puede usar herramientas
    iterativamente, pero sin razonamiento explícito tiende
    a repetir búsquedas similares sin reformular. No puede
    explicar POR QUÉ tomó cada decisión.
 
-{MAGENTA}3. AGENTE REACT:{RESET} Más lento pero significativamente más
-   preciso. Puede reformular búsquedas fallidas, combinar
-   información de múltiples fuentes, y cada decisión es
-   trazable a un pensamiento explícito. Ideal para tareas
-   complejas donde la precisión importa más que la velocidad.
+{BLUE}3. AGENTE REACT{RESET} ({BLUE}Thought{RESET} → {YELLOW}Action{RESET} → {MAGENTA}Obs{RESET}):
+   Más lento pero significativamente más preciso. Puede
+   reformular búsquedas fallidas, combinar información de
+   múltiples fuentes, y cada decisión es trazable a un
+   {BLUE}pensamiento explícito{RESET}. Ideal para tareas complejas
+   donde la precisión importa más que la velocidad.
+
+{DIM}Leyenda de colores:{RESET}
+   {BLUE}Azul{RESET} = Razonamiento (Thought)
+   {YELLOW}Amarillo{RESET} = Acción (Action)
+   {MAGENTA}Rosa{RESET} = Observación (Observation)
+   {GREEN}Verde{RESET} = Respuesta final
 """
     )
 
@@ -427,7 +430,7 @@ def main():
 
         # ── Agente Básico ──
         t0 = time.time()
-        b_result = basic_agent.run(question)
+        b_result = basic_agent.run(question, verbose=False)
         b_time = time.time() - t0
         _print_basic(b_result, b_time)
 
@@ -441,7 +444,7 @@ def main():
 
         # ── Agente ReAct ──
         t0 = time.time()
-        r_result = react_agent.run(question)
+        r_result = react_agent.run(question, verbose=False)
         r_time = time.time() - t0
         _print_react(r_result, r_time)
 

@@ -16,6 +16,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# ── Colores ANSI ──────────────────────────────────────────────
+_BOLD = "\033[1m"
+_DIM = "\033[2m"
+_BLUE = "\033[34m"         # Thought / Razonamiento
+_YELLOW = "\033[33m"       # Action
+_MAGENTA = "\033[35m"      # Observation
+_GREEN = "\033[32m"        # Respuesta
+_RED = "\033[31m"          # Error
+_RESET = "\033[0m"
+
 REACT_SYSTEM_PROMPT = """\
 Eres un agente DocOps que responde preguntas sobre documentos internos de la empresa.
 
@@ -67,7 +77,7 @@ class ReactAgent:
     def __init__(
         self,
         tools: dict | None = None,
-        model: str = "gpt-oss-120b",
+        model: str = "openai/gpt-oss-120b",
         max_steps: int = 8,
     ):
         self.tools = tools or TOOLS_REGISTRY
@@ -79,18 +89,28 @@ class ReactAgent:
             timeout=30.0,
         )
 
-    def run(self, query: str) -> dict:
+    def run(self, query: str, verbose: bool = True) -> dict:
         steps: list[dict] = []
         trajectory = f"Question: {query}\n"
         system = REACT_SYSTEM_PROMPT.format(max_steps=self.max_steps)
 
+        if verbose:
+            print(f"\n{_BOLD}{'─' * 60}{_RESET}")
+            print(f"{_BOLD}  AGENTE REACT (Thought → Action → Observation){_RESET}")
+            print(f"{_DIM}  Query: {query}{_RESET}")
+            print(f"{_BOLD}{'─' * 60}{_RESET}")
+
         for step_num in range(1, self.max_steps + 1):
             # Detección de loops
             if self._detect_loop(trajectory):
-                trajectory += (
-                    f"Thought {step_num}: Estoy repitiendo acciones. "
-                    "Debo reformular mi estrategia con términos diferentes.\n"
+                loop_thought = (
+                    "Estoy repitiendo acciones. "
+                    "Debo reformular mi estrategia con términos diferentes."
                 )
+                trajectory += f"Thought {step_num}: {loop_thought}\n"
+                if verbose:
+                    print(f"  {_RED}[Loop detectado]{_RESET}")
+                    print(f"  {_BLUE}Thought {step_num}:{_RESET} {_BLUE}{loop_thought}{_RESET}")
                 logger.warning(
                     "Step %d - Loop detected, injecting reformulation thought",
                     step_num,
@@ -109,6 +129,8 @@ class ReactAgent:
                 raw = response.choices[0].message.content.strip()
             except Exception as e:
                 logger.error("Step %d - LLM error: %s", step_num, e)
+                if verbose:
+                    print(f"  {_RED}Error: {e}{_RESET}")
                 steps.append(
                     {
                         "step": step_num,
@@ -128,6 +150,11 @@ class ReactAgent:
 
             # Finish
             if tool_call.tool == "Finish":
+                if verbose:
+                    print(f"  {_BLUE}Thought {step_num}:{_RESET} {_BLUE}{thought}{_RESET}")
+                    print(f"  {_YELLOW}Action {step_num}:{_RESET} {action_line[:70]}")
+                    print(f"\n  {_GREEN}{_BOLD}Respuesta:{_RESET} {_GREEN}{tool_call.argument}{_RESET}")
+                    print(f"  {_DIM}Total pasos: {step_num}{_RESET}\n")
                 steps.append(
                     {
                         "step": step_num,
@@ -142,6 +169,8 @@ class ReactAgent:
                     f"Action {step_num}: {action_line}\n"
                 )
                 logger.info("Step %d - Finished: %s", step_num, tool_call.argument[:100])
+
+                print(trajectory)
                 return {
                     "answer": tool_call.argument,
                     "steps": steps,
@@ -152,6 +181,12 @@ class ReactAgent:
             # Execute tool
             result = execute_tool(tool_call)
             observation = result.output
+
+            if verbose:
+                print(f"  {_BLUE}Thought {step_num}:{_RESET} {_BLUE}{thought}{_RESET}")
+                print(f"  {_YELLOW}Action {step_num}:{_RESET} {action_line[:70]}")
+                print(f"  {_MAGENTA}Observation {step_num}:{_RESET} {_MAGENTA}{observation[:120]}{_RESET}")
+                print()
 
             steps.append(
                 {
@@ -169,6 +204,12 @@ class ReactAgent:
             )
             logger.info("Step %d - Observation: %s", step_num, observation[:100])
 
+        if verbose:
+            print(f"  {_RED}Max pasos alcanzados sin respuesta final.{_RESET}\n")
+        
+
+
+        
         return {
             "answer": None,
             "steps": steps,
@@ -185,11 +226,18 @@ class ReactAgent:
         return len(set(actions[-window:])) == 1
 
     @staticmethod
-    def _parse_react_output(raw: str, step_num: int) -> tuple[str, str]:
+    def _clean_markdown(text: str) -> str:
+        """Elimina marcadores de markdown (**, *, etc.) del texto."""
+        return re.sub(r"\*{1,2}", "", text).strip()
+
+    def _parse_react_output(self, raw: str, step_num: int) -> tuple[str, str]:
         """Extrae Thought y Action de la salida del LLM."""
-        # Thought
+        # Strip markdown bold markers
+        cleaned = self._clean_markdown(raw)
+
+        # Thought — try with step number, then any
         thought_match = re.search(
-            rf"Thought\s*{step_num}?\s*:\s*(.+?)(?=Action|$)", raw, re.DOTALL
+            rf"Thought\s*{step_num}?\s*:\s*(.+?)(?=Action|$)", cleaned, re.DOTALL
         )
         thought = (
             thought_match.group(1).strip()
@@ -198,16 +246,18 @@ class ReactAgent:
         )
 
         # Action — try exact step, then any step
-        action_match = re.search(rf"Action\s*{step_num}\s*:\s*(.+)", raw)
+        action_match = re.search(rf"Action\s*{step_num}\s*:\s*(.+)", cleaned)
         if not action_match:
-            action_match = re.search(r"Action\s*\d*\s*:\s*(.+)", raw)
+            action_match = re.search(r"Action\s*\d*\s*:\s*(.+)", cleaned)
 
         if action_match:
             return thought, action_match.group(1).strip()
 
         # Fallback: look for tool call pattern
-        for line in reversed(raw.split("\n")):
+        for line in reversed(cleaned.split("\n")):
             if re.search(r"\w+\s*[\[\(]", line):
                 return thought, line.strip()
 
-        return thought, f'Finish["No pude determinar la acción. Respuesta parcial: {raw[:200]}"]'
+        # Last resort: model gave a direct answer — wrap in Finish
+        direct = cleaned.replace("\n", " ")[:300]
+        return thought, f'Finish["{direct}"]'
